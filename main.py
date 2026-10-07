@@ -1,10 +1,9 @@
-import ccxt
-import pandas as pd
+import time
 import requests
 
 # --- TELEGRAM AYARLARI ---
 TELEGRAM_TOKEN = "8950898533:AAEU-FsEvHt5qUIAzXMwa-hCBWZMTGcDI_Y"
-CHAT_ID = "853083506"
+CHAT_ID = "-1003795173448"  # Örn: -1001234567890
 
 
 def telegram_mesaj_gonder(mesaj):
@@ -16,66 +15,69 @@ def telegram_mesaj_gonder(mesaj):
     print(f"Telegram mesaj hatası: {e}")
 
 
-# --- BİNANCE VADELİ BAĞLANTISI ---
-exchange = ccxt.binance({
-    'options': {'defaultType': 'future'},
-    'enableRateLimit': True,
-})
-
-
-def tarama_yap():
-  print('Kaptan, Binance Vadeli piyasalar 15m taranıyor...')
+def borsa_verilerini_cek():
+  print("Kaptan, Binance Vadeli 15m pusu taraması başlatıldı...")
   try:
-    markets = exchange.load_markets()
-    symbols = [s for s in markets if s.endswith('/USDT:USDT')]
+    # Binance Vadeli halka açık 24s ticker ve sembol listesi
+    url = "https://fapi.binance.com/fapi/v1/ticker/24hr"
+    response = requests.get(url, timeout=15)
+    data = response.json()
 
-    bulunan_coinler = 0
+    if not isinstance(data, list):
+      print(f"Veri formatı beklenmeyen tipte: {data}")
+      return
 
-    for symbol in symbols:
-      try:
-        # Son 30 mumluk veriyi çekiyoruz
-        ohlcv = exchange.fetch_ohlcv(symbol, timeframe='15m', limit=30)
-        if len(ohlcv) < 30:
-          continue
-
-        df = pd.DataFrame(
-            ohlcv,
-            columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'],
-        )
-
-        # Son kapanmış mum ve önceki 20 mum
-        son_mum = df.iloc[-2]
-        gecmis_20_mum = df.iloc[-22:-2]
-
-        # 1. Kural: Son 20 mumun ortalama hacminin 5 katı hacim
-        ortalama_hacim = gecmis_20_mum['volume'].mean()
-        hacim_sarti = son_mum['volume'] >= (ortalama_hacim * 5)
-
-        # 2. Kural: Son LH (Düşen Tepe / en yüksek direnç) seviyesinin kırılması
-        son_lh = gecmis_20_mum['high'].max()
-        fiyat_sarti = son_mum['close'] > son_lh
-
-        if hacim_sarti and fiyat_sarti:
-          coin_adi = symbol.split('/')[0]
-          bulunan_coinler += 1
-          mesaj = (
-              f"🚨 *PUSU VAKTİ / HACİM PATLAMASI!* 🚨\n\n"
-              f"🪙 *Coin:* `{coin_adi}/USDT`\n"
-              f"⏱ *Zaman Dilimi:* 15 Dakikalık (15m)\n"
-              f"📊 *Durum:* Son 20 mum ortalamasının 5 katı hacim ve LH kırılımı!\n"
-              f"💰 *Kapanış Fiyatı:* `{son_mum['close']}`\n\n"
-              f"Kaptan, radarımıza takıldı, gözünü üstüne dik!"
-          )
-          telegram_mesaj_gonder(mesaj)
-
-      except Exception:
+    # USDT pariteli vadeli coinleri tarayalım
+    for item in data:
+      symbol = item.get("symbol", "")
+      if not symbol.endswith("USDT"):
         continue
 
-    print(f'Tarama tamamlandı. Eşleşen coin sayısı: {bulunan_coinler}')
+      coin_adi = symbol.replace("USDT", "")
+      fiyat = float(item.get("lastPrice", 0))
+      hacim_24s = float(item.get("quoteVolume", 0))  # USDT bazlı hacim
+
+      # Her coin için son 15 dakikalık mumları ve LH/Hacim kontrolünü çekelim
+      # Coğrafi engeli aşmak için doğrudan Binance fapi public klines uç noktası:
+      klines_url = f"https://fapi.binance.com/fapi/v1/klines?symbol={symbol}&interval=15m&limit=25"
+      k_resp = requests.get(klines_url, timeout=5)
+
+      if k_resp.status_code == 200:
+        k_data = k_resp.json()
+        if len(k_data) >= 21:
+          # Mum yapısı: [Open time, Open, High, Low, Close, Volume, ...]
+          hacimler = [float(m[5]) for m in k_data[-21:-1]]  # Son 20 mumun hacmi
+          ortalama_hacim = sum(hacimler) / len(hacimler)
+          son_mum_hacmi = float(k_data[-1][5])  # İçinde olduğumuz son mumun hacmi
+
+          # Son tepeler (LH kontrolü için son 5 mumun en yüksek noktası)
+          yuksekler = [float(m[2]) for m in k_data[-6:-1]]
+          son_lh = max(yuksekler)
+          anlik_fiyat = float(k_data[-1][4])  # Son mumun kapanış/anlık fiyatı
+
+          # --- DÜKKANIN PUSU ŞARTLARI ---
+          # 1. Şart: Son mumun hacmi, son 20 mumun ortalama hacminin 1.5 katını (veya daha fazlasını) geçecek
+          # 2. Şart: Anlık fiyat, son LH (düşen tepe) seviyesinin üzerine çıkmış olacak
+          if (
+              son_mum_hacmi > (ortalama_hacim * 1.5)
+              and anlik_fiyat > son_lh
+          ):
+            mesaj = (
+                f"🎯 *BALİNA PUSU SİNYALİ YAKALANDI* 🎯\n\n"
+                f"🪙 *Coin:* `{coin_adi}/USDT`\n"
+                f"💰 *Anlık Fiyat:* `{fiyat}`\n"
+                f"📊 *Hacim Patlaması:* Son mum ortalamanın üstünde!\n"
+                f"🚀 *Durum:* LH kırıldı, balinalar pusuya yattı!\n\n"
+                f"Kaptan, kasayı büyütme ve pusuya geçme vaktidir!"
+            )
+            telegram_mesaj_gonder(mesaj)
+            time.sleep(1)
+
+    print("15m Pusu taraması başarıyla tamamlandı!")
 
   except Exception as e:
-    print(f"Genel tarama hatası: {e}")
+    print(f"Pusu tarama hatası: {e}")
 
 
-if __name__ == '__main__':
-  tarama_yap()
+if __name__ == "__main__":
+  borsa_verilerini_cek()
