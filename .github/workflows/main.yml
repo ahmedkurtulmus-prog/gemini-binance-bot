@@ -1,9 +1,9 @@
-name: Binance Bot 7/24
+name: Binance 15m Tarama Botu
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 */6 * * *' # GitHub zaman aşımı sınırına takılmasın diye her 6 saatte bir otomatik tetikler
+    - cron: '*/15 * * * *' # Her 15 dakikada bir otomatik çalışır!
 
 jobs:
   build:
@@ -23,6 +23,6 @@ jobs:
         pip install --upgrade pip
         pip install -r requirements.txt
 
-    - name: Botu Başlat
+    - name: Taramayı Başlat
       run: |
         python main.py
