@@ -1,5 +1,5 @@
 import time
-requests
+import requests
 import json
 
 # --- TELEGRAM AYARLARI ---
