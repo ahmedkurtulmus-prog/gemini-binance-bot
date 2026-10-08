@@ -1,12 +1,12 @@
 import time
 import requests
 import json
+import os
 
 # --- TELEGRAM AYARLARI ---
 TELEGRAM_TOKEN = "8950898533:AAEU-FsEvHt5qUIAzXMwa-hCBWZMTGcDI_Y"
 CHAT_ID = "-1003795173448"
 
-# Tarayıcı gibi görünmek için güvenlik başlıkları
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,"
@@ -25,23 +25,24 @@ def send_telegram_message(mesaj):
 
 
 def scan_crypto():
-  print("Kaptan, engelsiz Vision API ile 15m gerçek hacim taraması başladı...")
+  event_name = os.getenv("GITHUB_EVENT_NAME", "manual")
+  is_manual = event_name == "workflow_dispatch"
+
+  print(f"Kaptan, 5x hacim ve LH taraması başladı (Manuel test mi?: {is_manual})...")
   try:
-    # GitHub sunucularında asla 451 veya 404 vermeyen resmi engelsiz vision uç noktası
+    # Binance Vision ham veri altyapısı (Değişmedi)
     ticker_url = "https://data-api.binance.vision/api/v3/ticker/24hr"
     resp = requests.get(ticker_url, headers=HEADERS, timeout=10)
 
     try:
       data = resp.json()
     except json.JSONDecodeError:
-      print(f"Sunucu yanıtı JSON formatında değil: {resp.text[:100]}")
+      print("Sunucu yanıtı JSON formatında değil.")
       return
 
     if not isinstance(data, list):
-      print(f"Piyasa verisi alınamadı: {data}")
       return
 
-    # Sadece USDT paritelerini al ve hacme göre sırala (En aktif ilk 40 coin)
     usdt_coinler = [
         item for item in data if item.get("symbol", "").endswith("USDT")
     ]
@@ -78,18 +79,20 @@ def scan_crypto():
             current_closed_volume = prev_volumes[-1]
 
             breakout_condition = current_closed_close >= last_lh_level
-            volume_condition = current_closed_volume >= (vol_sma20 * 3.0)
+            
+            # 5 Kat Devasa Hacim Şartı
+            volume_condition = current_closed_volume >= (vol_sma20 * 5.0)
 
             if breakout_condition and volume_condition:
               hacim_artisi = current_closed_volume / max(vol_sma20, 1)
 
               msg = (
-                  f"🚨 BALİNA YEŞİL MUM & 5X HACİM SİNYALİ 🚨\n\n"
+                  f"🚨 BALİNA DEVASA 5X HACİM SİNYALİ 🚨\n\n"
                   f"Coin: {coin_adi}/USDT\n"
                   f"Anlık Fiyat: {anlik_fiyat}\n"
                   f"Kırılan LH Seviyesi: {last_lh_level:.4f}\n"
                   f"Hacim Artışı: {hacim_artisi:.1f}x (20 Mum Ortalamasına Göre)\n"
-                  f"Durum: Devasa hacim sütunuyla LH yukarı kırıldı!\n\n"
+                  f"Durum: Sol tarafı ezip geçen dev sütunla LH kırıldı!\n\n"
                   f"Kaptan, mermi hedefe kilitlendi, kasayı büyütme vaktidir!"
               )
               found_coins.append(msg)
@@ -103,6 +106,10 @@ def scan_crypto():
       print("Sinyaller Telegram'a gönderildi.")
     else:
       print("Uygun kırılım bulunamadı.")
+      if is_manual:
+        durum_mesaji = "🔍 *Şu an kriterlere uygun kırılım bulunamadı.*"
+        send_telegram_message(durum_mesaji)
+        print("Manuel test olduğu için Telegram'a bilgi mesajı iletildi.")
 
   except Exception as e:
     print(f"Tarama genel hatası: {e}")
