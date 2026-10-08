@@ -1,12 +1,13 @@
-import time
+import ccxt
 import requests
+import time
 
 # --- TELEGRAM AYARLARI ---
 TELEGRAM_TOKEN = "8950898533:AAEU-FsEvHt5qUIAzXMwa-hCBWZMTGcDI_Y"
 CHAT_ID = "-1003795173448"
 
 
-def telegram_mesaj_gonder(mesaj):
+def send_telegram_message(mesaj):
   url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
   payload = {"chat_id": CHAT_ID, "text": mesaj, "parse_mode": "Markdown"}
   try:
@@ -15,70 +16,83 @@ def telegram_mesaj_gonder(mesaj):
     print(f"Telegram mesaj hatası: {e}")
 
 
-def engelsiz_pusu_taramasi():
-  print("Kaptan, %100 engelsiz yeşil mum ve hacim taraması başlatıldı...")
+def scan_crypto():
+  print("Kaptan, CCXT destekli 15m MSB ve Devasa Hacim taraması başladı...")
   try:
-    # Dünyanın her yerinden (GitHub dahil) hiçbir engele takılmayan resmi CoinGecko API
-    url = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=volume_desc&per_page=40&page=1&sparkline=true&price_change_percentage=24h"
-    response = requests.get(url, timeout=15)
-    data = response.json()
+    # Binance Vadeli (USDT.P) bağlantısı (arkadaşının kullandığı engelsiz profesyonel yöntem)
+    exchange = ccxt.binance({
+        "options": {"defaultType": "future"},
+        "enableRateLimit": True,
+    })
 
-    if not isinstance(data, list):
-      print(f"Veri formatı hatalı: {data}")
-      return
+    markets = exchange.load_markets()
+    usdt_symbols = [s for s in markets if s.endswith("/USDT:USDT")]
 
-    for coin in data:
-      coin_adi = coin.get("symbol", "").upper()
-      fiyat = coin.get("current_price", 0)
-      toplam_hacim = coin.get("total_volume", 0)
+    found_coins = []
 
-      # Sparkline (son 7 günlük fiyat periyotları) verisi
-      sparkline = coin.get("sparkline_in_7d", {}).get("price", [])
+    for symbol in usdt_symbols[:40]:  # En hacimli ilk 40 parite
+      try:
+        # 15 dakikalık mumları çekiyoruz
+        ohlcv = exchange.fetch_ohlcv(symbol, timeframe="15m", limit=30)
+        if len(ohlcv) < 25:
+          continue
 
-      if len(sparkline) >= 25:
-        # Son mum (anlık kapanış) ve bir önceki mum (açılış simülasyonu)
-        anlik_kapanis = sparkline[-1]
-        onceki_acilis = sparkline[-2]
+        # Mum formatı: [timestamp, open, high, low, close, volume]
+        # Kapanmış son mumları ve aktif mumları ayırıyoruz
+        closes = [x[4] for x in ohlcv]
+        highs = [x[2] for x in ohlcv]
+        volumes = [x[5] for x in ohlcv]
 
-        # 1. Şart: Mum YEŞİL olacak (Kapanış > Açılış, fiyat yukarı itilmiş)
-        mum_yesil_mi = anlik_kapanis > onceki_acilis
+        # Arkadaşının kodundaki mantık: Önceki kapanmış mumlar üzerinden hesaplama
+        prev_closes = closes[:-1]
+        prev_highs = highs[:-1]
+        prev_volumes = volumes[:-1]
 
-        # Geriye dönük periyotların ortalaması ve LH (Düşen tepe) tespiti
-        gecmis_fiyatlar = sparkline[-21:-1]
-        ortalama_fiyat = sum(gecmis_fiyatlar) / len(gecmis_fiyatlar)
+        # Son 20 mumun hacim ortalaması (vol_sma20)
+        vol_sma20 = sum(prev_volumes[-20:]) / 20
 
-        tepeler = sparkline[-6:-1]
-        son_lh = max(tepeler)
+        # Son LH (Lower High) seviyesi tespiti
+        last_lh_level = max(prev_highs[-6:])
 
-        # Hacim patlaması simülasyonu (Anlık hacmin önceki periyotlara oranı)
-        ortalama_hacim_birimi = toplam_hacim / 24
-        anlik_mum_hacim = toplam_hacim * 0.15  # Anlık hacim ağırlığı
-        gecmis_20_mum_ort_hacim = anlik_mum_hacim / 5.2
-        hacim_orani = anlik_mum_hacim / max(gecmis_20_mum_ort_hacim, 1)
+        current_closed_close = prev_closes[-1]
+        current_closed_volume = prev_volumes[-1]
+        coin_adi = symbol.split("/")[0]
+        anlik_fiyat = closes[-1]
 
-        # --- İSTEDİĞİN TÜM ALTIN KURALLAR ---
-        # - Mum yeşil olacak
-        # - Hacim ortalamanın en az 5 katı olacak (Devasa sütun)
-        # - Fiyat son LH seviyesinin üstüne çıkmış olacak
-        if mum_yesil_mi and hacim_orani >= 5.0 and anlik_kapanis > son_lh:
-          mesaj = (
+        # Kurallar:
+        # 1. Kapanış mumu son LH seviyesinin üstüne çıkmış olacak
+        # 2. Hacim, önceki 20 mumun ortalamasının en az 3 katı olacak (Devasa sütun)
+        breakout_condition = current_closed_close >= last_lh_level
+        volume_condition = current_closed_volume >= (vol_sma20 * 3.0)
+
+        if breakout_condition and volume_condition:
+          hacim_artisi = current_closed_volume / vol_sma20
+
+          msg = (
               f"🚨 BALİNA YEŞİL MUM & 5X HACİM SİNYALİ 🚨\n\n"
               f"Coin: {coin_adi}/USDT\n"
-              f"Anlık Fiyat: {fiyat}\n"
-              f"Anlık 15m Hacim: {anlik_mum_hacim:,.2f}\n"
-              f"Önceki 20 Mum Ort. Hacim: {gecmis_20_mum_ort_hacim:,.2f}\n"
-              f"Hacim Patlaması: {hacim_orani:.1f} Katı (DEVASA SÜTUN)\n"
-              f"Durum: Mum yeşil patladı, son LH ({son_lh}) yukarı delindi!\n\n"
+              f"Anlık Fiyat: {anlik_fiyat}\n"
+              f"Kırılan LH Seviyesi: {last_lh_level:.4f}\n"
+              f"Hacim Artışı: {hacim_artisi:.1f}x (20 Mum Ortalamasına Göre)\n"
+              f"Durum: Devasa hacim sütunuyla LH yukarı kırıldı!\n\n"
               f"Kaptan, mermi hedefe kilitlendi, kasayı büyütme vaktidir!"
           )
-          telegram_mesaj_gonder(mesaj)
-          time.sleep(1)
+          found_coins.append(msg)
+          time.sleep(0.2)
 
-    print("Engelsiz pusu taraması başarıyla tamamlandı!")
+      except Exception as e:
+        continue
+
+    if found_coins:
+      final_msg = "\n\n".join(found_coins)
+      send_telegram_message(final_msg)
+      print("Sinyaller Telegram'a gönderildi.")
+    else:
+      print("Uygun kırılım bulunamadı.")
 
   except Exception as e:
-    print(f"Tarama hatası: {e}")
+    print(f"Tarama genel hatası: {e}")
 
 
 if __name__ == "__main__":
-  engelsiz_pusu_taramasi()
+  scan_crypto()
