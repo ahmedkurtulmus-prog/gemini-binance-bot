@@ -1,6 +1,5 @@
-import ccxt
-import requests
 import time
+import requests
 
 # --- TELEGRAM AYARLARI ---
 TELEGRAM_TOKEN = "8950898533:AAEU-FsEvHt5qUIAzXMwa-hCBWZMTGcDI_Y"
@@ -17,70 +16,82 @@ def send_telegram_message(mesaj):
 
 
 def scan_crypto():
-  print("Kaptan, CCXT destekli 15m MSB ve Devasa Hacim taraması başladı...")
+  print(
+      "Kaptan, engelsiz 15m MSB ve Devasa Hacim taraması başlatıldı (Vision"
+      " Altyapısı)..."
+  )
   try:
-    # Binance Vadeli (USDT.P) bağlantısı (arkadaşının kullandığı engelsiz profesyonel yöntem)
-    exchange = ccxt.binance({
-        "options": {"defaultType": "future"},
-        "enableRateLimit": True,
-    })
+    # Coğrafi engele takılmayan Binance public ticker uç noktası
+    ticker_url = "https://api3.binance.com/api/v3/ticker/24hr"
+    resp = requests.get(ticker_url, timeout=10)
+    data = resp.json()
 
-    markets = exchange.load_markets()
-    usdt_symbols = [s for s in markets if s.endswith("/USDT:USDT")]
+    if not isinstance(data, list):
+      print(f"Piyasa verisi alınamadı: {data}")
+      return
+
+    # Sadece USDT paritelerini al ve hacme göre sırala (En aktif ilk 40 coin)
+    usdt_coinler = [
+        item for item in data if item.get("symbol", "").endswith("USDT")
+    ]
+    usdt_coinler.sort(
+        key=lambda x: float(x.get("quoteVolume", 0)), reverse=True
+    )
+    en_aktif_40 = usdt_coinler[:40]
 
     found_coins = []
 
-    for symbol in usdt_symbols[:40]:  # En hacimli ilk 40 parite
+    for item in en_aktif_40:
+      symbol = item.get("symbol", "")
+      coin_adi = symbol.replace("USDT", "")
+      anlik_fiyat = float(item.get("lastPrice", 0))
+
+      # %100 engelsiz public data-api.binance.vision 15m mum uç noktası
+      klines_url = f"https://data-api.binance.vision/api/v3/klines?symbol={symbol}&interval=15m&limit=30"
       try:
-        # 15 dakikalık mumları çekiyoruz
-        ohlcv = exchange.fetch_ohlcv(symbol, timeframe="15m", limit=30)
-        if len(ohlcv) < 25:
-          continue
+        k_resp = requests.get(klines_url, timeout=3)
+        if k_resp.status_code == 200:
+          ohlcv = k_resp.json()
+          if len(ohlcv) >= 25:
+            # Mum yapısı: [timestamp, open, high, low, close, volume, ...]
+            closes = [float(x[4]) for x in ohlcv]
+            highs = [float(x[2]) for x in ohlcv]
+            volumes = [float(x[5]) for x in ohlcv]
 
-        # Mum formatı: [timestamp, open, high, low, close, volume]
-        # Kapanmış son mumları ve aktif mumları ayırıyoruz
-        closes = [x[4] for x in ohlcv]
-        highs = [x[2] for x in ohlcv]
-        volumes = [x[5] for x in ohlcv]
+            prev_closes = closes[:-1]
+            prev_highs = highs[:-1]
+            prev_volumes = volumes[:-1]
 
-        # Arkadaşının kodundaki mantık: Önceki kapanmış mumlar üzerinden hesaplama
-        prev_closes = closes[:-1]
-        prev_highs = highs[:-1]
-        prev_volumes = volumes[:-1]
+            # Son 20 mumun hacim ortalaması (vol_sma20)
+            vol_sma20 = sum(prev_volumes[-20:]) / 20
 
-        # Son 20 mumun hacim ortalaması (vol_sma20)
-        vol_sma20 = sum(prev_volumes[-20:]) / 20
+            # Son LH (Lower High) seviyesi tespiti
+            last_lh_level = max(prev_highs[-6:])
 
-        # Son LH (Lower High) seviyesi tespiti
-        last_lh_level = max(prev_highs[-6:])
+            current_closed_close = prev_closes[-1]
+            current_closed_volume = prev_volumes[-1]
 
-        current_closed_close = prev_closes[-1]
-        current_closed_volume = prev_volumes[-1]
-        coin_adi = symbol.split("/")[0]
-        anlik_fiyat = closes[-1]
+            # Arkadaşının kodundaki o altın kurallar:
+            # 1. Kapanış mumu son LH seviyesinin üstüne çıkmış olacak
+            # 2. Hacim, önceki 20 mumun ortalamasının en az 3 katı olacak (Devasa sütun)
+            breakout_condition = current_closed_close >= last_lh_level
+            volume_condition = current_closed_volume >= (vol_sma20 * 3.0)
 
-        # Kurallar:
-        # 1. Kapanış mumu son LH seviyesinin üstüne çıkmış olacak
-        # 2. Hacim, önceki 20 mumun ortalamasının en az 3 katı olacak (Devasa sütun)
-        breakout_condition = current_closed_close >= last_lh_level
-        volume_condition = current_closed_volume >= (vol_sma20 * 3.0)
+            if breakout_condition and volume_condition:
+              hacim_artisi = current_closed_volume / max(vol_sma20, 1)
 
-        if breakout_condition and volume_condition:
-          hacim_artisi = current_closed_volume / vol_sma20
-
-          msg = (
-              f"🚨 BALİNA YEŞİL MUM & 5X HACİM SİNYALİ 🚨\n\n"
-              f"Coin: {coin_adi}/USDT\n"
-              f"Anlık Fiyat: {anlik_fiyat}\n"
-              f"Kırılan LH Seviyesi: {last_lh_level:.4f}\n"
-              f"Hacim Artışı: {hacim_artisi:.1f}x (20 Mum Ortalamasına Göre)\n"
-              f"Durum: Devasa hacim sütunuyla LH yukarı kırıldı!\n\n"
-              f"Kaptan, mermi hedefe kilitlendi, kasayı büyütme vaktidir!"
-          )
-          found_coins.append(msg)
-          time.sleep(0.2)
-
-      except Exception as e:
+              msg = (
+                  f"🚨 BALİNA YEŞİL MUM & 5X HACİM SİNYALİ 🚨\n\n"
+                  f"Coin: {coin_adi}/USDT\n"
+                  f"Anlık Fiyat: {anlik_fiyat}\n"
+                  f"Kırılan LH Seviyesi: {last_lh_level:.4f}\n"
+                  f"Hacim Artışı: {hacim_artisi:.1f}x (20 Mum Ortalamasına Göre)\n"
+                  f"Durum: Devasa hacim sütunuyla LH yukarı kırıldı!\n\n"
+                  f"Kaptan, mermi hedefe kilitlendi, kasayı büyütme vaktidir!"
+              )
+              found_coins.append(msg)
+              time.sleep(0.1)
+      except Exception:
         continue
 
     if found_coins:
