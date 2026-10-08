@@ -15,69 +15,82 @@ def telegram_mesaj_gonder(mesaj):
     print(f"Telegram mesaj hatası: {e}")
 
 
-def engelsiz_pusu_taramasi():
-  print("Kaptan, 5 kat hacim ve LH pusu taraması başlatıldı...")
+def pusu_taramasi_15m():
+  print("Kaptan, 15m yeşil mum, 5x hacim ve LH kırılım taraması başlatıldı...")
   try:
-    # Coğrafi engele takılmayan garantili engelsiz market verisi
-    url = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=volume_desc&per_page=30&page=1&sparkline=true&price_change_percentage=24h"
-    response = requests.get(url, timeout=15)
-    data = response.json()
+    # Küresel ve engelsiz Binance public ticker uç noktası
+    ticker_url = "https://api3.binance.com/api/v3/ticker/24hr"
+    resp = requests.get(ticker_url, timeout=15)
+    data = resp.json()
 
     if not isinstance(data, list):
-      print(f"Veri formatı hatalı: {data}")
+      print(f"Piyasa verisi alınamadı: {data}")
       return
 
-    for coin in data:
-      coin_adi = coin.get("symbol", "").upper()
-      fiyat = coin.get("current_price", 0)
-      toplam_hacim = coin.get("total_volume", 0)
+    for item in data:
+      symbol = item.get("symbol", "")
+      if not symbol.endswith("USDT"):
+        continue
 
-      # Sparkline verisi üzerinden son periyot hareketleri ve hacim simülasyonu
-      sparkline = coin.get("sparkline_in_7d", {}).get("price", [])
+      coin_adi = symbol.replace("USDT", "")
+      anlik_fiyat = float(item.get("lastPrice", 0))
 
-      if len(sparkline) >= 25:
-        # Son 20 mumun fiyat/hacim ortalaması için geriye dönük dilim
-        gecmis_fiyatlar = sparkline[-21:-1]
-        ortalama_fiyat = sum(gecmis_fiyatlar) / len(gecmis_fiyatlar)
+      # Engelsiz global veri yansımasından 15m mumları (klines) çekiyoruz
+      klines_url = f"https://data-api.binance.vision/api/v3/klines?symbol={symbol}&interval=15m&limit=25"
+      k_resp = requests.get(klines_url, timeout=5)
 
-        anlik_fiyat = sparkline[-1]
+      if k_resp.status_code == 200:
+        k_data = k_resp.json()
+        if len(k_data) >= 21:
+          # Mum yapısı: [Open time, Open, High, Low, Close, Volume, ...]
+          # Index 1: Open (Açılış), Index 2: High (Tepe), Index 4: Close (Kapanış), Index 5: Volume (Hacim)
 
-        # LH (Düşen tepe) tespiti: Son 5 mumun en yüksek noktası
-        tepeler = sparkline[-6:-1]
-        son_lh = max(tepeler)
+          # Son 20 mumun hacimleri (içinde olduğumuz son mum hariç önceki 20 mum)
+          gecmis_hacimler = [float(m[5]) for m in k_data[-21:-1]]
+          ortalama_hacim_20 = sum(gecmis_hacimler) / len(gecmis_hacimler)
 
-        # Hacim çarpanı simülasyonu (Anlık toplam hacmin 20 periyotluk ortalamaya oranı)
-        # Piyasa genel hacmi üzerinden oransal 5 kat patlama kontrolü
-        ortalama_hacim_ornek = toplam_hacim / 24  # Yaklaşık birim hacim ölçeği
-        anlik_mum_hacim = (
-            toplam_hacim * 0.12
-        )  # Son mumun hacim ağırlık simülasyonu
-        gecmis_20_mum_ort_hacim = anlik_mum_hacim / 5.2  # Test çarpanı tabanı
+          son_mum_hacmi = float(k_data[-1][5])  # İçinde olduğumuz son 15m mumun hacmi
+          son_mum_acilis = float(k_data[-1][1])
+          son_mum_kapanis = float(k_data[-1][4])
 
-        # --- İSTEDİĞİN 5 KAT HACİM VE LH KIRILIM ŞARTI ---
-        # 1. Şart: Anlık fiyat, son LH seviyesinin üstüne çıkmış olacak
-        # 2. Şart: Anlık hacim, önceki 20 mumun ortalamasının en az 5 katı olacak
-        hacim_orani = anlik_mum_hacim / max(gecmis_20_mum_ort_hacim, 1)
+          # 1. Şart: Mum kesinlikle YEŞİL olacak (Kapanış > Açılış)
+          mum_yesil_mi = son_mum_kapanis > son_mum_acilis
 
-        if anlik_fiyat > son_lh and hacim_orani >= 5.0:
-          mesaj = (
-              f"🎯 *BALİNA 5X HACİM & LH PUSU SİNYALİ* 🎯\n\n"
-              f"🪙 *Coin:* `{coin_adi}/USDT`\n"
-              f"💰 *Anlık Fiyat:* `$ {fiyat}`\n"
-              f"📊 *Anlık 15m Hacim:* `$ {anlik_mum_hacim:,.0f}`\n"
-              f"📉 *Önceki 20 Mum Ort. Hacim:* `$ {gecmis_20_mum_ort_hacim:,.0f}`\n"
-              f"⚡ *Hacim Patlaması:* `{hacim_orani:.1f} Katı!`\n"
-              f"🚀 *Durum:* LH (`{son_lh}`) kırıldı, hacim 5x patladı!\n\n"
-              f"Kaptan, mermi hedefe kilitlendi, kasayı büyütme vaktidir!"
-          )
-          telegram_mesaj_gonder(mesaj)
-          time.sleep(1.5)
+          # Son LH (Lower High) tespiti: Son 5 mumun en yüksek tepe noktası (son mum hariç)
+          tepeler = [float(m[2]) for m in k_data[-6:-1]]
+          son_lh = max(tepeler)
 
-    print("Engelsiz pusu taraması başarıyla tamamlandı!")
+          # Hacim çarpanı hesaplama (Anlık hacmin önceki 20 mumun ortalamasına oranı)
+          hacim_orani = son_mum_hacmi / max(ortalama_hacim_20, 1)
+
+          # --- İSTEDİĞİN TÜM ALTIN KURALLAR ---
+          # - Mum yeşil olacak
+          # - Anlık hacim, önceki 20 mumun ortalamasının en az 5 katı olacak (Devasa sütun)
+          # - Fiyat, son LH seviyesinin üzerine çıkmış olacak
+          if (
+              mum_yesil_mi
+              and hacim_orani >= 5.0
+              and son_mum_kapanis > son_lh
+          ):
+
+            mesaj = (
+                f"🚨 BALİNA YEŞİL MUM & 5X HACİM SİNYALİ 🚨\n\n"
+                f"Coin: {coin_adi}/USDT\n"
+                f"Anlık Fiyat: {anlik_fiyat}\n"
+                f"Anlık 15m Hacim: {son_mum_hacmi:,.2f}\n"
+                f"Önceki 20 Mum Ort. Hacim: {ortalama_hacim_20:,.2f}\n"
+                f"Hacim Patlaması: {hacim_orani:.1f} Katı (DEVASA SÜTUN)\n"
+                f"Durum: Mum yeşil patladı, son LH ({son_lh}) yukarı delindi!\n\n"
+                f"Kaptan, mermi hedefe kilitlendi, kasayı büyütme vaktidir!"
+            )
+            telegram_mesaj_gonder(mesaj)
+            time.sleep(1.5)
+
+    print("15m pusu taraması başarıyla tamamlandı!")
 
   except Exception as e:
     print(f"Tarama hatası: {e}")
 
 
 if __name__ == "__main__":
-  engelsiz_pusu_taramasi()
+  pusu_taramasi_15m()
