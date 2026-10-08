@@ -98,7 +98,7 @@ def scan_crypto():
     else:
       print("Uygun kırılım bulunamadı.")
 
---except Exception as e:
+  except Exception as e:
     print(f"Tarama genel hatası: {e}")
 
 
