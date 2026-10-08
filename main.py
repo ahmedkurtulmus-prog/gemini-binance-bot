@@ -1,27 +1,41 @@
 import time
-import requests
+requests
+import json
 
 # --- TELEGRAM AYARLARI ---
 TELEGRAM_TOKEN = "8950898533:AAEU-FsEvHt5qUIAzXMwa-hCBWZMTGcDI_Y"
 CHAT_ID = "-1003795173448"
+
+# Tarayıcı gibi görünmek için güvenlik başlıkları (Cloudflare/Binance engellerini aşar)
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,"
+        " like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    )
+}
 
 
 def send_telegram_message(mesaj):
   url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
   payload = {"chat_id": CHAT_ID, "text": mesaj, "parse_mode": "Markdown"}
   try:
-    requests.post(url, json=payload)
+    requests.post(url, json=payload, headers=HEADERS)
   except Exception as e:
     print(f"Telegram mesaj hatası: {e}")
 
 
 def scan_crypto():
-  print("Kaptan, engelsiz 15m gerçek hacim ve LH taraması başladı...")
+  print("Kaptan, engelsiz ve başlıklı 15m gerçek hacim taraması başladı...")
   try:
-    # GitHub sunucularında 451 engeline takılmayan resmi ve engelsiz Binance public uç noktası
     ticker_url = "https://data.binance.com/api/v3/ticker/24hr"
-    resp = requests.get(ticker_url, timeout=10)
-    data = resp.json()
+    resp = requests.get(ticker_url, headers=HEADERS, timeout=10)
+
+    # Güvenli JSON kontrolü
+    try:
+      data = resp.json()
+    except json.JSONDecodeError:
+      print(f"Sunucu JSON yerine engelleme sayfası döndürdü. Yanıt: {resp.text[:100]}")
+      return
 
     if not isinstance(data, list):
       print(f"Piyasa verisi alınamadı: {data}")
@@ -43,14 +57,12 @@ def scan_crypto():
       coin_adi = symbol.replace("USDT", "")
       anlik_fiyat = float(item.get("lastPrice", 0))
 
-      # Engelsiz public data uç noktasından son 30 adet 15m mum verisi
       klines_url = f"https://data.binance.com/api/v3/klines?symbol={symbol}&interval=15m&limit=30"
       try:
-        k_resp = requests.get(klines_url, timeout=3)
+        k_resp = requests.get(klines_url, headers=HEADERS, timeout=3)
         if k_resp.status_code == 200:
           ohlcv = k_resp.json()
           if len(ohlcv) >= 25:
-            # Mum yapısı: [timestamp, open, high, low, close, volume, ...]
             closes = [float(x[4]) for x in ohlcv]
             highs = [float(x[2]) for x in ohlcv]
             volumes = [float(x[5]) for x in ohlcv]
@@ -59,18 +71,12 @@ def scan_crypto():
             prev_highs = highs[:-1]
             prev_volumes = volumes[:-1]
 
-            # Son 20 mumun hacim ortalaması (vol_sma20) - Arkadaşının kodundaki birebir mantık
             vol_sma20 = sum(prev_volumes[-20:]) / 20
-
-            # Son LH (Lower High) seviyesi tespiti (son 6 mumun tepe noktası)
             last_lh_level = max(prev_highs[-6:])
 
             current_closed_close = prev_closes[-1]
             current_closed_volume = prev_volumes[-1]
 
-            # Kurallar:
-            # 1. Kapanış mumu son LH seviyesinin üstüne çıkmış olacak
-            # 2. Hacim, önceki 20 mumun ortalamasının en az 3 katı olacak (Devasa sütun)
             breakout_condition = current_closed_close >= last_lh_level
             volume_condition = current_closed_volume >= (vol_sma20 * 3.0)
 
