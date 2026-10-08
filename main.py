@@ -6,7 +6,7 @@ import json
 TELEGRAM_TOKEN = "8950898533:AAEU-FsEvHt5qUIAzXMwa-hCBWZMTGcDI_Y"
 CHAT_ID = "-1003795173448"
 
-# Tarayıcı gibi görünmek için güvenlik başlıkları (Cloudflare/Binance engellerini aşar)
+# Tarayıcı gibi görünmek için güvenlik başlıkları
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,"
@@ -25,16 +25,16 @@ def send_telegram_message(mesaj):
 
 
 def scan_crypto():
-  print("Kaptan, engelsiz ve başlıklı 15m gerçek hacim taraması başladı...")
+  print("Kaptan, engelsiz Vision API ile 15m gerçek hacim taraması başladı...")
   try:
-    ticker_url = "https://data.binance.com/api/v3/ticker/24hr"
+    # GitHub sunucularında asla 451 veya 404 vermeyen resmi engelsiz vision uç noktası
+    ticker_url = "https://data-api.binance.vision/api/v3/ticker/24hr"
     resp = requests.get(ticker_url, headers=HEADERS, timeout=10)
 
-    # Güvenli JSON kontrolü
     try:
       data = resp.json()
     except json.JSONDecodeError:
-      print(f"Sunucu JSON yerine engelleme sayfası döndürdü. Yanıt: {resp.text[:100]}")
+      print(f"Sunucu yanıtı JSON formatında değil: {resp.text[:100]}")
       return
 
     if not isinstance(data, list):
@@ -57,7 +57,7 @@ def scan_crypto():
       coin_adi = symbol.replace("USDT", "")
       anlik_fiyat = float(item.get("lastPrice", 0))
 
-      klines_url = f"https://data.binance.com/api/v3/klines?symbol={symbol}&interval=15m&limit=30"
+      klines_url = f"https://data-api.binance.vision/api/v3/klines?symbol={symbol}&interval=15m&limit=30"
       try:
         k_resp = requests.get(klines_url, headers=HEADERS, timeout=3)
         if k_resp.status_code == 200:
