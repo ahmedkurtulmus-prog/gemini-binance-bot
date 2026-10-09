@@ -1,0 +1,29 @@
+name: Quick Surge Accumulation Scan
+
+on:
+  schedule:
+    # Günde 4 kez otomatik çalışır (Daha sık kontrol için: 4 saatte bir)
+    - cron: '0 */4 * * *'
+  workflow_dispatch:  # Manuel test için
+
+jobs:
+  run-quick-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: |
+          pip install requests
+
+      - name: Run Quick Surge Bot
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+        run: |
+          python quick_surge_bot.py
