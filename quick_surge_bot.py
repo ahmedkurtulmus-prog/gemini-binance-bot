@@ -3,8 +3,8 @@ import requests
 import json
 from datetime import datetime, timezone, timedelta
 
-# --- TELEGRAM AYARLARI ---
-TELEGRAM_TOKEN = "895089533:AAEU-FseVHt5qUIAzXMwa-hCBWZMTGcDI_Y"
+# --- TELEGRAM AYARLARI (DOĞRULANDI) ---
+TELEGRAM_TOKEN = "8950898533:AAEU-FsEvHt5qUIAzXMwa-hCBWZMTGcDI_Y"
 CHAT_ID = "-1003795173448"
 
 def send_telegram_message(message):
@@ -20,6 +20,10 @@ def send_telegram_message(message):
     try:
         response = requests.post(url, json=payload, timeout=10)
         print(f"Telegram yanıt kodu: {response.status_code}")
+        if response.status_code == 200:
+            print("Telegram mesajı başarıyla gönderildi.")
+        else:
+            print(f"Telegram hata detayı: {response.text}")
     except Exception as e:
         print(f"Telegram gönderim hatası: {e}")
 
@@ -28,8 +32,7 @@ def get_binance_futures_symbols():
     try:
         response = requests.get(url, timeout=10)
         data = response.json()
-        # Binance fapi exchangeInfo formatına tam uyumlu çekim
-        symbols = [s['symbol'] for s in data.get('symbols', []) if s.get('quoteAsset') == 'USDT' and s.get('status') == 'TRADING']
+        symbols = [s['symbol'] for s in data.get('symbols', []) if s.get('quoteAsset') == 'USDT' and s.get('status'] == 'TRADING']
         return symbols
     except Exception as e:
         print(f"Semboller alınırken hata: {e}")
