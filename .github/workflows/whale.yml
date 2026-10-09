@@ -1,0 +1,30 @@
+name: Whale Accumulation Deep Scan
+
+on:
+  schedule:
+    # Günde 3 kez otomatik çalışır (TSİ ile: 09:00, 15:00, 21:00 -> UTC karşılığı)
+    - cron: '0 6,12,18 * * *'
+  workflow_dispatch:  # Manuel test (istediğin an elle tetikleyebilmen için)
+
+jobs:
+  run-whale-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: |
+          python -mupyter --version || true
+          pip install requests
+
+      - name: Run Whale Accumulation Bot
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+        run: |
+          python whale_accumulation.py
