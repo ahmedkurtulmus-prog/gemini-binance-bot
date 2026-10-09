@@ -28,9 +28,9 @@ def scan_crypto():
   event_name = os.getenv("GITHUB_EVENT_NAME", "manual")
   is_manual = event_name == "workflow_dispatch"
 
-  print(f"Kaptan, 5x hacim ve LH taraması başladı (Manuel test mi?: {is_manual})...")
+  print(f"Kaptan, 15m MSB & Yüksek Hacim taraması başladı...")
   try:
-    # Binance Vision ham veri altyapısı (Değişmedi)
+    # Binance Vision ham veri altyapısı (Kesinlikle güvenli ve engelsiz)
     ticker_url = "https://data-api.binance.vision/api/v3/ticker/24hr"
     resp = requests.get(ticker_url, headers=HEADERS, timeout=10)
 
@@ -56,7 +56,6 @@ def scan_crypto():
     for item in en_aktif_40:
       symbol = item.get("symbol", "")
       coin_adi = symbol.replace("USDT", "")
-      anlik_fiyat = float(item.get("lastPrice", 0))
 
       klines_url = f"https://data-api.binance.vision/api/v3/klines?symbol={symbol}&interval=15m&limit=30"
       try:
@@ -80,20 +79,19 @@ def scan_crypto():
 
             breakout_condition = current_closed_close >= last_lh_level
             
-            # 5 Kat Devasa Hacim Şartı
-            volume_condition = current_closed_volume >= (vol_sma20 * 5.0)
+            # Arkadaşının botuyla birebir uyumlu hacim eşiği (4.5x ve üzeri dip/hacim patlamaları)
+            volume_condition = current_closed_volume >= (vol_sma20 * 4.5)
 
             if breakout_condition and volume_condition:
               hacim_artisi = current_closed_volume / max(vol_sma20, 1)
 
+              # Arkadaşının grubundaki o şık ve net bildirim formatı
               msg = (
-                  f"🚨 BALİNA DEVASA 5X HACİM SİNYALİ 🚨\n\n"
-                  f"Coin: {coin_adi}/USDT\n"
-                  f"Anlık Fiyat: {anlik_fiyat}\n"
-                  f"Kırılan LH Seviyesi: {last_lh_level:.4f}\n"
-                  f"Hacim Artışı: {hacim_artisi:.1f}x (20 Mum Ortalamasına Göre)\n"
-                  f"Durum: Sol tarafı ezip geçen dev sütunla LH kırıldı!\n\n"
-                  f"Kaptan, mermi hedefe kilitlendi, kasayı büyütme vaktidir!"
+                  f"📊 *15m MSB & Yüksek Hacim Taraması:* \n\n"
+                  f"🔥 `{coin_adi}USDT`\n"
+                  f"Kırılan LH: `{last_lh_level:.4f}`\n"
+                  f"Kapanış: `{current_closed_close:.4f}`\n"
+                  f"Hacim Artışı: `{hacim_artisi:.1f}x (20 Mum Ort.)`"
               )
               found_coins.append(msg)
               time.sleep(0.1)
@@ -109,7 +107,7 @@ def scan_crypto():
       if is_manual:
         durum_mesaji = "🔍 *Şu an kriterlere uygun kırılım bulunamadı.*"
         send_telegram_message(durum_mesaji)
-        print("Manuel test olduğu için Telegram'a bilgi mesajı iletildi.")
+        print("Manuel test olduğu için bilgi mesajı iletildi.")
 
   except Exception as e:
     print(f"Tarama genel hatası: {e}")
