@@ -19,8 +19,7 @@ def send_telegram_message(message):
     }
     try:
         response = requests.post(url, json=payload, timeout=10)
-        if response.status_code != 0:
-            print("Telegram mesajı başarıyla gönderildi.")
+        print(f"Telegram yanıt kodu: {response.status_code}")
     except Exception as e:
         print(f"Telegram gönderim hatası: {e}")
 
@@ -29,7 +28,8 @@ def get_binance_futures_symbols():
     try:
         response = requests.get(url, timeout=10)
         data = response.json()
-        symbols = [s['symbol'] for s in data['symbols'] if s['quoteAsset'] == 'USDT' and s['status'] == 'TRADING']
+        # Binance fapi exchangeInfo formatına tam uyumlu çekim
+        symbols = [s['symbol'] for s in data.get('symbols', []) if s.get('quoteAsset') == 'USDT' and s.get('status') == 'TRADING']
         return symbols
     except Exception as e:
         print(f"Semboller alınırken hata: {e}")
@@ -51,7 +51,7 @@ def analyze_quick_surges():
             if res.status_code != 200:
                 continue
             candles = res.json()
-            if len(candles) < 15:
+            if not isinstance(candles, list) or len(candles) < 15:
                 continue
 
             volumes = [float(c[5]) for c in candles]
@@ -86,8 +86,7 @@ def analyze_quick_surges():
         if is_manual:
             durum_mesaji = (
                 f"⚡ *Hızlı Fişek Tarama Raporu ({tr_zaman.strftime('%H:%M')})*\n\n"
-                "15 dakikalık 1-2 günlük patlama adayları tarandı. Şu an tahtalarda hacim patlaması ve yatay sıkışma dengeleniyor.\n"
-                "Pusu devrede, av bekleniyor Kaptan!"
+                f"Toplam `{len(symbols)}` adet USDT.P paritesi tarandı. 15 dakikalık periyotta hacim patlaması arandı, pusu devrede bekliyor Kaptan!"
             )
             send_telegram_message(durum_mesaji)
 
