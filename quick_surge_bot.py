@@ -3,7 +3,7 @@ import requests
 import json
 from datetime import datetime, timezone, timedelta
 
-# --- TELEGRAM AYARLARI (DOĞRULANDI) ---
+# --- TELEGRAM AYARLARI ---
 TELEGRAM_TOKEN = "8950898533:AAEU-FsEvHt5qUIAzXMwa-hCBWZMTGcDI_Y"
 CHAT_ID = "-1003795173448"
 
@@ -32,7 +32,7 @@ def get_binance_futures_symbols():
     try:
         response = requests.get(url, timeout=10)
         data = response.json()
-        symbols = [s['symbol'] for s in data.get('symbols', []) if s.get('quoteAsset') == 'USDT' and s.get('status'] == 'TRADING']
+        symbols = [s['symbol'] for s in data.get('symbols', []) if s.get('quoteAsset') == 'USDT' and s.get('status') == 'TRADING']
         return symbols
     except Exception as e:
         print(f"Semboller alınırken hata: {e}")
