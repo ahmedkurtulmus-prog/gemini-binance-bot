@@ -4,7 +4,6 @@ import json
 from datetime import datetime, timezone, timedelta
 
 # --- TELEGRAM AYARLARI ---
-# Mevcut ana botunla aynı Telegram kanalına/sohbetine rapor atması için bilgiler
 TELEGRAM_TOKEN = "895089533:AAEU-FseVHt5qUIAzXMwa-hCBWZMTGcDI_Y"
 CHAT_ID = "-1003795173448"
 
@@ -33,22 +32,20 @@ def get_binance_futures_symbols():
         symbols = [s['symbol'] for s in data['symbols'] if s['quoteAsset'] == 'USDT' and s['status'] == 'TRADING']
         return symbols
     except Exception as e:
-        print(f_"Semboller alınırken hata: {e}")
+        print(f"Semboller alınırken hata: {e}")
         return []
 
 def analyze_quick_surges():
     symbols = get_binance_futures_symbols()
     found_surges = []
     
-    # TR saati
     tr_tz = timezone(timedelta(hours=3))
     tr_zaman = datetime.now(tr_tz)
     
     print(f"Toplam {len(symbols)} adet USDT.P paritesi 15 dakikalık hızlı patlama için taranıyor...")
 
-    for symbol in symbols[:80]: # Hızlı tarama için ana majörler ve yüksek hacimliler
+    for symbol in symbols[:80]:
         try:
-            # 15 dakikalık periyot (15m) - Hızlı fişek avı için
             klines_url = f"https://fapi.binance.com/fapi/v1/klines?symbol={symbol}&interval=15m&limit=20"
             res = requests.get(klines_url, timeout=5)
             if res.status_code != 200:
@@ -57,16 +54,12 @@ def analyze_quick_surges():
             if len(candles) < 15:
                 continue
 
-            # Son mumlar ve hacim analizi
             volumes = [float(c[5]) for c in candles]
             closes = [float(c[4]) for c in candles]
-            highs = [float(c[2]) for c in candles]
-            lows = [float(c[3]) for c in candles]
             
             avg_volume = sum(volumes[:-1]) / len(volumes[:-1]) if len(volumes[:-1]) > 0 else 1
             last_volume = volumes[-1]
             
-            # Fiyat sıkışması (yatay akümülasyon) ve son mumda en az 3 kat hacim patlaması
             price_change = ((closes[-1] - closes[-2]) / closes[-2]) * 100
             
             if last_volume > (avg_volume * 3.5) and abs(price_change) < 1.5:
@@ -86,7 +79,6 @@ def analyze_quick_surges():
     is_manual = os.getenv("GITHUB_EVENT_NAME") == "workflow_dispatch"
 
     if found_surges:
-        # En net 3 sinyali gönderelim ki kalabalık yapmasın
         final_msg = "\n\n-------------------\n\n".join(found_surges[:3])
         send_telegram_message(final_msg)
     else:
