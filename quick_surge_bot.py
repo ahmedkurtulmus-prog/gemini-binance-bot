@@ -32,7 +32,7 @@ def get_binance_futures_symbols():
     try:
         response = requests.get(url, timeout=10)
         data = response.json()
-        symbols = [s['symbol'] for s in data.get('symbols', []) if s.get('quoteAsset') == 'USDT' and s.get('status'] == 'TRADING']
+        symbols = [s['symbol'] for s in data.get('symbols', []) if s.get('quoteAsset') == 'USDT' and s.get('status') == 'TRADING']
         return symbols
     except Exception as e:
         print(f"Semboller alınırken hata: {e}")
@@ -47,7 +47,6 @@ def analyze_quick_surges():
     
     print(f"Toplam {len(symbols)} adet USDT.P paritesi 15 dakikalık hızlı patlama için taranıyor...")
 
-    # Sınırlamayı kaldırıp tüm aktif havuzu tarıyoruz
     for symbol in symbols:
         try:
             klines_url = f"https://fapi.binance.com/fapi/v1/klines?symbol={symbol}&interval=15m&limit=20"
@@ -66,7 +65,6 @@ def analyze_quick_surges():
             
             price_change = ((closes[-1] - closes[-2]) / closes[-2]) * 100
             
-            # Hızlı fişek koşulu: Hacim 3 katına çıkmış ve fiyat sakin kalmış
             if last_volume > (avg_volume * 3.0) and abs(price_change) < 2.0:
                 msg = (
                     f"🚀 *HIZLI FİŞEK AKÜMÜLASYON SİNYALİ* 🚀\n\n"
